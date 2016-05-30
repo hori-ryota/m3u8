@@ -30,6 +30,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -289,18 +290,29 @@ func (p *MediaPlaylist) Remove() (err error) {
 	return nil
 }
 
-var segmentStore []MediaSegment
-var segmentStoreTail = 0
+var (
+	segmentStore         = make([]MediaSegment, segmentStoreCapacity)
+	segmentStoreTail     = 0
+	segmentStoreMutex    = new(sync.Mutex)
+	segmentStoreCapacity = 65536
+)
 
-// Append general chunk to the tail of chunk slice for a media playlist.
-// This operation does reset playlist cache.
-func (p *MediaPlaylist) Append(uri string, duration float64, title string) error {
+func NewMediaSegment() *MediaSegment {
+	segmentStoreMutex.Lock()
 	if segmentStoreTail == len(segmentStore) {
-		segmentStore = make([]MediaSegment, p.capacity)
+		segmentStore = make([]MediaSegment, segmentStoreCapacity)
 		segmentStoreTail = 0
 	}
 	seg := &segmentStore[segmentStoreTail]
 	segmentStoreTail++
+	segmentStoreMutex.Unlock()
+	return seg
+}
+
+// Append general chunk to the tail of chunk slice for a media playlist.
+// This operation does reset playlist cache.
+func (p *MediaPlaylist) Append(uri string, duration float64, title string) error {
+	seg := NewMediaSegment()
 	seg.URI = uri
 	seg.SetDuration(duration)
 	seg.Title = title
@@ -310,12 +322,7 @@ func (p *MediaPlaylist) Append(uri string, duration float64, title string) error
 // Append general chunk to the tail of chunk slice for a media playlist.
 // This operation does reset playlist cache.
 func (p *MediaPlaylist) AppendWithDurationString(uri string, durationStr string, title string) error {
-	if segmentStoreTail == len(segmentStore) {
-		segmentStore = make([]MediaSegment, p.capacity)
-		segmentStoreTail = 0
-	}
-	seg := &segmentStore[segmentStoreTail]
-	segmentStoreTail++
+	seg := NewMediaSegment()
 	seg.URI = uri
 	if err := seg.SetDurationWithString(durationStr); err != nil {
 		return err
